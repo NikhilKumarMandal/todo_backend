@@ -7,6 +7,7 @@ import {
     deleteFromCloudinary
 } from '../utils/cloudinary.js'
 import  jwt  from 'jsonwebtoken'
+import { sendMail } from '../utils/mail.js'
 
 
 const generateAccessAndRefereshTokens = async(userId) => {
@@ -352,6 +353,43 @@ try {
 }
 })
 
+const forgetPassword = asyncHandler(async(req,res) => {
+
+    const {email} = req.body;
+
+    const user = await User.findOne({ email })
+
+    if (!user) {
+        throw new ApiError(400,"User does not exists")
+    }
+
+    const { forgetToken, hashedToken, tokenExpiry} = user.forgotPasswordToken()
+
+    user.forgotPasswordToken = hashedToken;
+    user.forgotPasswordExpiry = tokenExpiry;
+    await user.save({ validateBeforeSave: false });
+
+    await sendMail({
+        email: username.email,
+        subject: "Password reset request",
+        mailgenContent: forgotPasswordMailgenContent(
+            user.username,
+            `${req.protocol}://${req.get(
+        "host"
+        )}/api/v1/users/reset-password/${forgetToken}`
+        )
+    })
+    return res
+    .status(200)
+    .json(
+    new ApiResponse(
+        200,
+        {},
+        "Password reset mail has been sent on your mail id"
+    )
+    );
+})
+
 export {
     registerUser,
     loginUser,
@@ -361,4 +399,5 @@ export {
     getCurrentUser,
     updateAccountDetails,
     updateUserAvatar,
+    forgetPassword
 }
