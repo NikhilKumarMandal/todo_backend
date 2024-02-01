@@ -2,10 +2,6 @@ import { asyncHandler } from '../utils/asyncHandler.js'
 import { ApiError } from '../utils/ApiError.js'
 import { ApiResponse } from '../utils/ApiResponse.js'
 import { User } from '../models/user.model.js'
-import { 
-    uploadOnCloudinary,
-    deleteFromCloudinary
-} from '../utils/cloudinary.js'
 import  jwt  from 'jsonwebtoken'
 import { sendMail } from '../utils/mail.js'
 
@@ -28,6 +24,7 @@ const generateAccessAndRefereshTokens = async(userId) => {
 
 const registerUser  = asyncHandler(async (req,res) => {
 
+
     const {fullname, email, username, password } = req.body
     //console.log("email: ", email);
 
@@ -44,40 +41,15 @@ const registerUser  = asyncHandler(async (req,res) => {
     if (existedUser) {
         throw new ApiError(409, "User with email or username already exists")
     }
-    console.log(req.files);
+    //console.log(req.files);
 
-    let avatarLocalPath;
-    if (req.files && Array.isArray(req.files.avatar) && req.files.avatar.length > 0) {
-        avatarLocalPath = req.files.avatar[0].path
-    }
-
-    if (!avatarLocalPath) {
-        throw new ApiError(400, "Avatar file is required")
-    }
-
-    console.log("avatarLocalPath",avatarLocalPath);
-
-    const avatar = await uploadOnCloudinary(avatarLocalPath)
-    console.log("avatar",avatar?.url);
-
-
-    if (!avatar) {
-        throw new ApiError(400, "Avatar file is required")
-    }
-    
     const user = await User.create({
         fullname,
-        avatar:{
-        url: avatar.url,
-        public_id: avatar.public_id
-        },
         email,
         password,
         username: username.toLowerCase(),
     
     })
-
-    user.markModified('avatar');
 
     const createdUser = await User.findById(user._id).select(
         "-password -refreshToken"
@@ -89,13 +61,10 @@ const registerUser  = asyncHandler(async (req,res) => {
     }
 
     return res.status(201).json(
-        new ApiResponse(
-            200,
-            createdUser,
-            "User registered Successfully"
-            )
+        new ApiResponse(200, createdUser, "User registered Successfully")
     )
 })
+
 
 const loginUser = asyncHandler(async(req,res) => {
 
@@ -288,64 +257,6 @@ const updateAccountDetails = asyncHandler(async(req,res) => {
 
 })
 
-const updateUserAvatar = asyncHandler(async(req,res) => {
-
-    const avatarLocalPath = req.file?.path;
-
-try {
-    if (!avatarLocalPath) {
-        throw new ApiError("Avatar local path is missing");
-    }
-
-    const avatar = await uploadOnCloudinary(avatarLocalPath);
-
-    if (!avatar || !avatar.url || !avatar.public_id) {
-        throw new ApiError("Avatar upload failed or missing data");
-    }
-
-    //update new avatar
-    const user = await User.findByIdAndUpdate(
-        req.user._id,
-        {
-            $set: {
-                avatar: {
-                    url: avatar.url,
-                    public_id: avatar.public_id,
-                },
-            },
-        },
-        {
-            new: true,
-        }
-    ).select("-password -refreshToken")    
-    
-    if (!user || !user.avatar || !user.avatar.public_id) {
-        throw new ApiError("Missing public_id for avatar in user object");
-    }
-
-    console.log("public_id", user.avatar.public_id);
-    
-    // Delete the old avatar from Cloudinary
-    const deleteOldAvatar = await deleteFromCloudinary(user.avatar.public_id);
-    
-    if (!deleteOldAvatar) {
-        throw new ApiError("Error deleting old avatar");
-    }
-
-    return res
-    .status(200)
-    .json(
-        new ApiResponse(
-            200,
-            user,
-            "Cover image updated successfully"
-            )
-    )
-} catch (error) {
-    throw new ApiError(500,error?.message || "Internal Server Error")
-}
-})
-
 const forgetPassword = asyncHandler(async(req,res) => {
 
     const {email} = req.body;
@@ -356,22 +267,27 @@ const forgetPassword = asyncHandler(async(req,res) => {
         throw new ApiError(400,"User does not exists")
     }
 
-    const { forgetToken, hashedToken, tokenExpiry} = user.forgotPasswordToken()
+    const forgetToken = user.generateForgetPasswordToken()
 
-    user.forgotPasswordToken = hashedToken;
-    user.forgotPasswordExpiry = tokenExpiry;
+    
     await user.save({ validateBeforeSave: false });
 
-    await sendMail({
-        email: username.email,
-        subject: "Password reset request",
-        mailgenContent: forgotPasswordMailgenContent(
-            user.username,
-            `${req.protocol}://${req.get(
-        "host"
-        )}/api/v1/users/reset-password/${forgetToken}`
-        )
-    })
+    const myUrl = `${req.protocol}://${req.get("host")}/password/reset/${forgetToken}`
+
+    const message = `Copy paste this link in your URL  and hit enter \n\n ${myUrl}`
+
+    try {
+        await  sendMail({
+            email: user.email,
+            subject: "Todo Password reset email",
+            message
+        })
+    } catch (error) {
+        user.forgotPasswordToken = undefined
+        user.forgotPasswordExpiry = undefined
+        await user.save({ validateBeforeSave: false });
+        return new ApiError(500,error?.message)
+    }
     return res
     .status(200)
     .json(
@@ -428,7 +344,6 @@ export {
     changeCurrentPassword,
     getCurrentUser,
     updateAccountDetails,
-    updateUserAvatar,
     forgetPassword,
     passwordReset
 }

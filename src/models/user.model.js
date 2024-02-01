@@ -11,7 +11,6 @@ const userSchema = new Schema(
             unique: true,
             lowercase: true,
             trim: true, 
-            index: true
         },
         email: {
             type: String,
@@ -24,15 +23,6 @@ const userSchema = new Schema(
             type: String,
             required: true,
             trim: true, 
-        },
-        avatar: {
-            url: {
-                type: String,
-                required: true
-            },
-            public_id: {
-                type: String,
-            }
         },
         password: {
             type: String,
@@ -91,22 +81,18 @@ userSchema.methods.generateRefreshToken = function(){
     )
 }
 
-userSchema.methods.forgetPasswordToken = function(){
+userSchema.methods.generateForgetPasswordToken = function(){
 
     const forgetToken = crypto.randomBytes(20).toString('hex');
 
-    const hashedToken = crypto
+    this.forgotPasswordToken = crypto
     .createHash("sha256")
     .update(forgetToken)
     .digest("hex");
 
-    const tokenExpiry = Date.now() + process.env.FORGET_PASSWORD_TOKEN_EXPIRY
+    this.forgotPasswordExpiry = Date.now() + 20 * 60 * 1000
 
-    return {
-        forgetToken,
-        hashedToken,
-        tokenExpiry
-        }
+    return forgetToken;
 }
 
 export const User = mongoose.model("User", userSchema)
