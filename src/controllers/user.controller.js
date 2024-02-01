@@ -4,6 +4,7 @@ import { ApiResponse } from '../utils/ApiResponse.js'
 import { User } from '../models/user.model.js'
 import  jwt  from 'jsonwebtoken'
 import { sendMail } from '../utils/mail.js'
+import crypto from "crypto";
 
 
 const generateAccessAndRefereshTokens = async(userId) => {
@@ -301,28 +302,30 @@ const forgetPassword = asyncHandler(async(req,res) => {
 
 const passwordReset = asyncHandler(async(req,res) => {
 
-    const {resetToken} = req.params;
-    const {newPassword} = req.body;
+    const token = req.params.token;
 
-    let hashedToken = crypto
-    .createHash("sha256")
-    .update(resetToken)
-    .digest("hex");
+    const encryToken = crypto.createHash("sha256").update(token).digest("hex");
 
     const user = await User.findOne({
-        forgotPasswordToken: hashedToken,
-        forgotPasswordExpiry: { $gt: Date.now()}
-    })
+    forgotPasswordToken:encryToken,
+    forgotPasswordExpiry: { $gt: Date.now() },
+    });
+    console.log("user",encryToken);
 
     if (!user) {
-        throw new ApiError(489, "Token is invalid or expired");
+    throw new ApiError( 400,"Token is invalid or expired");
     }
+
+    if (req.body.password !== req.body.confirmPassword) {
+    throw new ApiError( 400,"password and confirm password do not match")
+    }
+
+    user.password = req.body.password;
 
     user.forgotPasswordToken = undefined;
     user.forgotPasswordExpiry = undefined;
 
-    user.password = newPassword;
-    await user.save({ validateBeforeSave: false });
+    await user.save({validateBeforeSave: false});
 
     return res
     .status(200)
